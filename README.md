@@ -3,12 +3,30 @@
 The `.bashrc` file is a script that runs every time a new terminal session is started in Unix-like operating systems. It is used to configure the shell session, set up aliases, define functions, and more, making the terminal easier to use and more powerful. Below is a summary of the key sections and functionalities defined in the provided `.bashrc` file.
 
 ## How to install
+
 ```
-git clone --depth=1 https://github.com/ChrisTitusTech/mybash.git
+curl -sS https://raw.githubusercontent.com/yuri-rage/mybash/yuri-bash/setup.sh | sh
+```
+
+OR
+
+```
+git clone --depth=1 https://github.com/yuri-rage/mybash.git
 cd mybash
+git checkout yuri-bash
 chmod +x setup.sh
 ./setup.sh
 ```
+
+### To run kitty in WSL via a Windows shortcut
+
+Create a shortcut with the following target:
+
+```
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -WindowStyle Hidden -Command C:\Windows\System32\wsl.exe --cd ~ -e bash -c /home/yuri/.local/bin/kitty
+```
+
+Replace "yuri" with your username.
 
 ### Initial Setup and System Checks
 

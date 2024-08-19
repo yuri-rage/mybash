@@ -17,7 +17,7 @@ fi
 if [ -d "$LINUXTOOLBOXDIR/mybash" ]; then rm -rf "$LINUXTOOLBOXDIR/mybash"; fi
 
 echo "${YELLOW}Cloning mybash repository into: $LINUXTOOLBOXDIR/mybash${RC}"
-git clone https://github.com/ChrisTitusTech/mybash "$LINUXTOOLBOXDIR/mybash"
+git clone https://github.com/yuri-rage/mybash "$LINUXTOOLBOXDIR/mybash"
 if [ $? -eq 0 ]; then
     echo "${GREEN}Successfully cloned mybash repository${RC}"
 else
@@ -30,8 +30,10 @@ PACKAGER=""
 SUDO_CMD=""
 SUGROUP=""
 GITPATH=""
+IS_WSL=false
 
 cd "$LINUXTOOLBOXDIR/mybash" || exit
+git checkout yuri-bash || exit
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -95,13 +97,44 @@ checkEnv() {
         echo "${RED}You need to be a member of the sudo group to run me!${RC}"
         exit 1
     fi
+
+    ## check if running in WSL
+    if grep -qEi "(Microsoft|microsoft|WSL)" /proc/version &> /dev/null; then
+        IS_WSL=true
+        echo "WSL detected - will install additional dependencies."
+    fi
 }
 
 installDepend() {
     ## Check for dependencies.
-    DEPENDENCIES='bash bash-completion tar bat tree multitail fastfetch wget unzip fontconfig'
+    DEPENDENCIES='bash bash-completion tar bat tree multitail fontconfig fastfetch wget unzip fontconfig trash-cli xdotool'
+    
+    # install nala if we don't have it
+    if [ "$PACKAGER" = "apt" ]; then
+        ${SUDO_CMD} ${PACKAGER} update
+        if ! command -v nala &> /dev/null; then
+            echo "Installing nala frontend for apt"
+            ${SUDO_CMD} ${PACKAGER} install -yq nala
+            PACKAGER="nala"
+        fi
+    fi
+
     if ! command_exists nvim; then
-        DEPENDENCIES="${DEPENDENCIES} neovim"
+        # Debian packages are notoriously old
+        if [[ "$PACKAGER" = "apt" || "$PACKAGER" = "nala" ]]; then
+                curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
+                chmod u+x nvim.appimage
+                ./nvim.appimage --appimage-extract
+                ${SUDO_CMD} mv squashfs-root /opt/neovim
+                ${SUDO_CMD} ln -s /opt/neovim/AppRun /usr/bin/nvim
+        else
+            DEPENDENCIES="${DEPENDENCIES} neovim"
+        fi
+    fi
+
+    # add fastfetch repo
+    if [ "$PACKAGER" = "apt" ] || [ "$PACKAGER" = "nala" ]; then
+        ${SUDO_CMD} add-apt-repository ppa:zhangsongcui3371/fastfetch
     fi
 
     echo "${YELLOW}Installing dependencies...${RC}"
@@ -137,14 +170,14 @@ installDepend() {
         ${SUDO_CMD} ${PACKAGER} install -yq ${DEPENDENCIES}
     fi
 
-    # Check to see if the MesloLGS Nerd Font is installed (Change this to whatever font you would like)
-    FONT_NAME="MesloLGS Nerd Font Mono"
+    # Check to see if the selected Nerd Font is installed (Change this to whatever font you would like)
+    FONT_NAME="Fira Code Nerd Font"
     if fc-list :family | grep -iq "$FONT_NAME"; then
         echo "Font '$FONT_NAME' is installed."
     else
-        echo "Installing font '$FONT_NAME'"
+        echo "Installing '$FONT_NAME'"
         # Change this URL to correspond with the correct font
-        FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip"
+        FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"
         FONT_DIR="$HOME/.local/share/fonts"
         # check if the file is accessible
         if wget -q --spider "$FONT_URL"; then
@@ -164,7 +197,7 @@ installDepend() {
     fi
 }
 
-installStarshipAndFzf() {
+installStarship() {
     if command_exists starship; then
         echo "Starship already installed"
         return
@@ -174,11 +207,17 @@ installStarshipAndFzf() {
         echo "${RED}Something went wrong during starship install!${RC}"
         exit 1
     fi
+}
+
+installFzf() {
     if command_exists fzf; then
         echo "Fzf already installed"
     else
-        git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-        ~/.fzf/install
+        git clone --depth 1 https://github.com/junegunn/fzf.git $HOME/.fzf
+        if ! $HOME/.fzf/install --all; then
+            echo "${RED}Something went wrong during fzf install!${RC}"
+            exit 1
+        fi
     fi
 }
 
@@ -194,90 +233,118 @@ installZoxide() {
     fi
 }
 
+installKitty() {
+    if command_exists kitty; then
+        echo "Kitty already installed"
+        return
+    fi
+
+    if ! curl -sS https://sw.kovidgoyal.net/kitty/installer.sh | sh; then
+        echo "${RED}Something went wrong during kitty install!${RC}"
+        exit 1
+    fi
+    ln -svf "$HOME/.local/kitty.app/bin/kitty" "$HOME/.local/bin/kitty"
+    ln -svf "$HOME/.local/kitty.app/bin/kitten" "$HOME/.local/bin/kitten"
+}
+
 install_additional_dependencies() {
-    # we have PACKAGER so just use it
-    # for now just going to return early as we have already installed neovim in `installDepend`
-    # so I am not sure why we are trying to install it again
-    return
-   case "$PACKAGER" in
-        *apt)
-            if [ ! -d "/opt/neovim" ]; then
-                curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
-                chmod u+x nvim.appimage
-                ./nvim.appimage --appimage-extract
-                ${SUDO_CMD} mv squashfs-root /opt/neovim
-                ${SUDO_CMD} ln -s /opt/neovim/AppRun /usr/bin/nvim
-            fi
-            ;;
-        *zypper)
-            ${SUDO_CMD} zypper refresh
-            ${SUDO_CMD} zypper -n install neovim # -y doesn't work on opensuse -n is short for -non-interactive which is equivalent to -y
-            ;;
-        *dnf)
-            ${SUDO_CMD} dnf check-update
-            ${SUDO_CMD} dnf install -y neovim
-            ;;
-        *pacman)
-            ${SUDO_CMD} pacman -Syu
-            ${SUDO_CMD} pacman -S --noconfirm neovim
-            ;;
-        *)
-            echo "No supported package manager found. Please install neovim manually."
-            exit 1
-            ;;
-    esac
+    # removed needless extra neovim installer and added WSL compatibility packages
+    if [ "$IS_WSL" = true ] && { [ "$PACKAGER" = "apt" ] || [ "$PACKAGER" = "nala" ]; }; then
+        echo "Installing WSL2 Wayland compatibility packages via kisak-mesa"
+        ${SUDO_CMD} add-apt-repository ppa:kisak/kisak-mesa
+        ${SUDO_CMD} ${PACKAGER} install mesa-utils -y
+    fi
 }
 
 create_fastfetch_config() {
     ## Get the correct user home directory.
     USER_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
     
-    if [ ! -d "$USER_HOME/.config/fastfetch" ]; then
-        mkdir -p "$USER_HOME/.config/fastfetch"
+    if [ ! -d "$HOME/.config/fastfetch" ]; then
+        mkdir -p "$HOME/.config/fastfetch"
     fi
     # Check if the fastfetch config file exists
-    if [ -e "$USER_HOME/.config/fastfetch/config.jsonc" ]; then
-        rm -f "$USER_HOME/.config/fastfetch/config.jsonc"
+    if [ -e "$HOME/.config/fastfetch/config.jsonc" ]; then
+        rm -f "$HOME/.config/fastfetch/config.jsonc"
     fi
-    ln -svf "$GITPATH/config.jsonc" "$USER_HOME/.config/fastfetch/config.jsonc" || {
-        echo "${RED}Failed to create symbolic link for fastfetch config${RC}"
-        exit 1
-    }
+    # I don't want to keep the cloned repo around, so just copy the file
+    cp -v "$GITPATH/config.jsonc" "$HOME/.config/fastfetch/config.jsonc"
+    cp -v "$GITPATH/rage-logo.png" "$HOME/.config/fastfetch/rage-logo.png"
+    # ln -svf "$GITPATH/config.jsonc" "$HOME/.config/fastfetch/config.jsonc" || {
+    #     echo "${RED}Failed to create symbolic link for fastfetch config${RC}"
+    #     exit 1
+    # }
 }
 
 linkConfig() {
     ## Get the correct user home directory.
     USER_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
     ## Check if a bashrc file is already there.
-    OLD_BASHRC="$USER_HOME/.bashrc"
+    OLD_BASHRC="$HOME/.bashrc"
     if [ -e "$OLD_BASHRC" ]; then
-        echo "${YELLOW}Moving old bash config file to $USER_HOME/.bashrc.bak${RC}"
-        if ! mv "$OLD_BASHRC" "$USER_HOME/.bashrc.bak"; then
+        echo "${YELLOW}Moving old bash config file to $HOME/.bashrc.bak${RC}"
+        if ! mv "$OLD_BASHRC" "$HOME/.bashrc.bak"; then
             echo "${RED}Can't move the old bash config file!${RC}"
             exit 1
         fi
     fi
 
+    OLD_BASH_ALIASES="$HOME/.bash_aliases"
+    if [ -e "$OLD_BASH_ALIASES" ]; then
+        echo "${YELLOW}Moving old bash alias file to $HOME/.bash_aliases.bak${RC}"
+        if ! mv "$OLD_BASH_ALIASES" "$HOME/.bash_aliases.bak"; then
+            echo "${RED}Can't move the old bash alias file!${RC}"
+            exit 1
+        fi
+    fi
+
+    OLD_KITTYCONF="$HOME/.config/kitty/kitty.conf"
+    if [ -e "$OLD_KITTYCONF" ]; then
+        echo "${YELLOW}Moving old kitty config file to $HOME/.config/kitty/kitty.conf.bak${RC}"
+        if ! mv "$OLD_KITTYCONF" "$HOME/.config/kitty/kitty.conf.bak"; then
+            echo "${RED}Can't move the old kitty config file!${RC}"
+            exit 1
+        fi
+    fi
+
+    OLD_STARSHIP="$HOME/.config/starship.toml"
+    if [ -e "$OLD_STARSHIP" ]; then
+        echo "${YELLOW}Moving old starship config file to $HOME/.config/starship.toml.bak${RC}"
+        if ! mv "$OLD_STARSHIP" "$HOME/.config/starship.toml.bak"; then
+            echo "${RED}Can't move the old starship config file!${RC}"
+            exit 1
+        fi
+    fi
+
     echo "${YELLOW}Linking new bash config file...${RC}"
-    ln -svf "$GITPATH/.bashrc" "$USER_HOME/.bashrc" || {
-        echo "${RED}Failed to create symbolic link for .bashrc${RC}"
-        exit 1
-    }
-    ln -svf "$GITPATH/starship.toml" "$USER_HOME/.config/starship.toml" || {
-        echo "${RED}Failed to create symbolic link for starship.toml${RC}"
-        exit 1
-    }
+    # I don't want to keep the cloned repo around, so just copy the files
+    cp -v "$GITPATH/.bashrc" "$HOME/.bashrc"
+    cp -v "$GITPATH/.bash_aliases" "$HOME/.bash_aliases"
+    cp -v "$GITPATH/starship.toml" "$HOME/.config/starship.toml"
+    mkdir -p "$HOME/.config/kitty"
+    cp -v "$GITPATH/kitty.conf" "$HOME/.config/kitty/kitty.conf"
+    # ln -svf "$GITPATH/.bashrc" "$HOME/.bashrc" || {
+    #     echo "${RED}Failed to create symbolic link for .bashrc${RC}"
+    #     exit 1
+    # }
+    # ln -svf "$GITPATH/starship.toml" "$HOME/.config/starship.toml" || {
+    #     echo "${RED}Failed to create symbolic link for starship.toml${RC}"
+    #     exit 1
+    # }
 }
 
 checkEnv
 installDepend
-installStarshipAndFzf
+installStarship
+installFzf
 installZoxide
+installKitty
 install_additional_dependencies
 create_fastfetch_config
 
 if linkConfig; then
     echo "${GREEN}Done!\nrestart your shell to see the changes.${RC}"
+    echo "\nThe ~/linuxtoolbox directory can be removed as desired."
 else
     echo "${RED}Something went wrong!${RC}"
 fi
