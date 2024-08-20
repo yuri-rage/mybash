@@ -56,7 +56,7 @@ export XDG_STATE_HOME="$HOME/.local/state"
 export XDG_CACHE_HOME="$HOME/.cache"
 
 # Seeing as other scripts will use it might as well export it
-export LINUXTOOLBOXDIR="$HOME/linuxtoolbox"
+# export LINUXTOOLBOXDIR="$HOME/linuxtoolbox"
 
 # Allow ctrl-S for history navigation (with ctrl-R)
 [[ $- == *i* ]] && stty -ixon
@@ -99,6 +99,128 @@ export LESS_TERMCAP_us=$'\E[01;32m'
 #######################################################
 # SPECIAL FUNCTIONS
 #######################################################
+
+# update unmnaged packages
+update-mybash() {
+    command_exists() {
+        command -v "$1" >/dev/null 2>&1
+    }
+
+    local SUDO_CMD
+    if command_exists sudo; then
+        SUDO_CMD="sudo"
+    elif command_exists doas && [ -f "/etc/doas.conf" ]; then
+        SUDO_CMD="doas"
+    else
+        SUDO_CMD="su -c"
+    fi
+
+    local SUPERUSERGROUP='wheel sudo root'
+    for sug in $SUPERUSERGROUP; do
+        if groups | grep -q "$sug"; then
+            SUGROUP="$sug"
+            echo "Super user group $SUGROUP"
+            break
+        fi
+    done
+
+    ## check for elevated privileges
+    if ! groups | grep -q "$SUGROUP"; then
+        echo "You need to be a member of the sudo group to run me!"
+        exit 1
+    fi
+
+    local wd="$PWD"
+    local tmp_dir="/tmp/mybash_update_$(date +%Y%m%d_%H%M%S)"
+    local nvim_dir="/opt/neovim"
+    local nvim_bin="/usr/bin/nvim"
+    local nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim.appimage"
+
+    mkdir -p $tmp_dir
+
+    # update neovim
+    local nvim_prev
+    local nvim_current
+
+    if [ -d "$nvim_dir" ]; then
+        nvim_prev=$(nvim -v | head -n 1 | awk '{print $2}')
+        echo "Downloading latest neovim..."
+        curl -Lo "$tmp_dir/nvim.appimage" $nvim_url
+        chmod u+x "$tmp_dir/nvim.appimage"
+        (cd $tmp_dir && ./nvim.appimage --appimage-extract)
+        ${SUDO_CMD} mv "$tmp_dir/squashfs-root" $nvim_dir
+        ${SUDO_CMD} ln -svf /opt/neovim/AppRun $nvim_bin
+        nvim_current=$(nvim -v | head -n 1 | awk '{print $2}')
+    fi
+
+    # update starship
+    local starship_prev=$(starship --version | head -n 1 | awk '{print $2}')
+    echo "Downloading latest starship..."
+    curl -sS https://starship.rs/install.sh | sh -s -- -y
+    local starship_current=$(starship --version | head -n 1 | awk '{print $2}')
+
+    # update fzf
+    local fzf_prev=$(fzf --version)
+    cd $HOME/.fzf
+    git fetch
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse @{u})" ]; then
+        echo "Pulling latest fzf updates..."
+        git pull
+        $HOME/.fzf/install --all
+    fi
+
+    # update zoxide
+    local zoxide_prev=$(zoxide --version | head -n 1 | awk '{print $2}')
+    echo "Downloading latest zoxide..."
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+    local zoxide_current=$(zoxide --version | head -n 1 | awk '{print $2}')
+
+    # update kitty
+    local kitty_prev=$(kitty --version 2>/dev/null | head -n 1 | awk '{print $2}')
+    echo "Downloading latest kitty..."
+    curl -sS https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin launch=n
+    ln -svf "$HOME/.local/kitty.app/bin/kitty" "$HOME/.local/bin/kitty"
+    ln -svf "$HOME/.local/kitty.app/bin/kitten" "$HOME/.local/bin/kitten"
+    local kitty_current=$(kitty --version 2>/dev/null | head -n 1 | awk '{print $2}')
+
+    /bin/rm -rf $tmp_dir
+    cd $wd
+    echo # new line
+
+    if [ "$nvim_current" = "" ]; then
+        echo "Neovim not updated     : Use your package manager"
+    elif [ "$nvim_prev" != "$nvim_current" ]; then
+        echo "Neovim updated         : $nvim_prev -> $nvim_current"
+    else
+        echo "Neovim is up to date   : $nvim_current"
+    fi
+
+    if [ "$starship_prev" != "$starship_current" ]; then
+        echo "Starship updated       : $starship_prev -> $starship_current"
+    else
+        echo "Starship is up to date : $starship_current"
+    fi
+
+    local fzf_current=$(fzf --version)
+    if [ "$fzf_prev" != "$fzf_current" ]; then
+        echo "fzf updated            : $fzf_prev -> $fzf_current"
+    else
+        echo "fzf is up to date      : $fzf_current"
+    fi
+
+    if [ "$zoxide_prev" != "$zoxide_current" ]; then
+        echo "zoxide updated         : $zoxide_prev -> $zoxide_current"
+    else
+        echo "zoxide is up to date   : $zoxide_current"
+    fi
+
+    if [ "$kitty_prev" != "$kitty_current" ]; then
+        echo "kitty updated          : $kitty_prev -> $kitty_current"
+    else
+        echo "kitty is up to date    : $kitty_current"
+    fi
+}
+
 # Extracts any archive(s) (if unp isn't installed)
 extract() {
 	for archive in "$@"; do
@@ -262,11 +384,9 @@ distribution () {
                 # If ID or ID_LIKE is not recognized, keep dtype as unknown
                 ;;
         esac
-    fi
 
     echo $dtype
 }
-
 
 DISTRIBUTION=$(distribution)
 if [ "$DISTRIBUTION" = "redhat" ] || [ "$DISTRIBUTION" = "arch" ]; then
@@ -314,6 +434,7 @@ ver() {
             ;;
     esac
 }
+alias distro="ver"
 
 # IP address lookup
 alias whatismyip="whatsmyip"

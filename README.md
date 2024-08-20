@@ -18,6 +18,10 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
+### To update un-managed packages
+
+Several apps/binaries are installed by `setup.sh` that are not managed by the package manager. Run `update-mybash` (defined in `.bashrc`) to update them.
+
 ### To run kitty in WSL via a Windows shortcut
 
 Create a shortcut with the following target:
