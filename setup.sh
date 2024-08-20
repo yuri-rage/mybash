@@ -239,7 +239,7 @@ installKitty() {
         return
     fi
 
-    if ! curl -sS https://sw.kovidgoyal.net/kitty/installer.sh | sh; then
+    if ! curl -sS https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin launch=n; then
         echo "${RED}Something went wrong during kitty install!${RC}"
         exit 1
     fi
