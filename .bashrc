@@ -23,9 +23,7 @@ elif [ -f /etc/bash_completion ]; then
 fi
 
 # use a separate bash alias file
-if [ -f ~/.bash_aliases ]; then
-    . ~/.bash_aliases
-fi
+[ -f ~/.bash_aliases ]&& . ~/.bash_aliases
 
 #######################################################
 # EXPORTS
@@ -336,7 +334,7 @@ distribution () {
 
     # Use /etc/os-release for modern distro identification
     if [ -r /etc/os-release ]; then
-        source /etc/os-release
+        . /etc/os-release
         case $ID in
             fedora|rhel|centos)
                 dtype="redhat"
@@ -384,8 +382,9 @@ distribution () {
                 # If ID or ID_LIKE is not recognized, keep dtype as unknown
                 ;;
         esac
+    fi
 
-    echo $dtype
+    echo "$dtype"
 }
 
 DISTRIBUTION=$(distribution)
@@ -498,9 +497,27 @@ if [[ $- == *i* ]]; then
     bind '"\C-f":"zi\n"'
 fi
 
-export PATH=$PATH:"$HOME/.local/bin"
+# only prepend to PATH as needed
+add_to_path() {
+    case ":$PATH:" in
+        *":$1:"*) :;;
+        *) [ -d "$1" ] && PATH="$1:$PATH";;
+    esac
+}
+
+add_to_path "$HOME/.local/bin"
+
+# ardupilot puts these in .profile
+# this will add them to any bash session (not just a login shell)
+add_to_path "/opt/gcc-arm-none-eabi-10-2020-q4-major/bin"
+add_to_path "$HOME/ardupilot/Tools/autotest"
+add_to_path "/usr/lib/ccache"
+export PATH
 
 eval "$(starship init bash)"
 eval "$(zoxide init bash)"
 
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
+[ -f ~/.fzf.bash ] && . ~/.fzf.bash
+
+[ -f "$HOME/ardupilot/Tools/completion/completion.bash" ] && \
+    . "$HOME/ardupilot/Tools/completion/completion.bash"
